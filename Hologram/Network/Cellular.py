@@ -11,7 +11,10 @@
 from Hologram.Event import Event
 from Exceptions.HologramError import NetworkError
 from Hologram.Network.Route import Route
-from Hologram.Network.Modem import Modem, E303, MS2131, Nova_U201, NovaM, DriverLoader
+from Hologram.Network.Modem import Modem, E303, MS2131, E372, Nova_U201
+from Hologram.Network.Modem import NovaM, DriverLoader, Default, Novatel_default
+from Hologram.Network.Modem import Zte_default, Hso_device_default, Huawei_default
+
 from Hologram.Network import Network, NetworkScope
 import time
 from serial.tools import list_ports
@@ -30,7 +33,13 @@ class Cellular(Network):
     _modemHandlers = {
         'e303': E303.E303,
         'ms2131': MS2131.MS2131,
-        'nova': Nova_U201.Nova_U201,
+        'e372': E372.E372,
+        'default': Default.Default,
+        'nova_default': Novatel_default.Novatel_default,
+        'zte_def': Zte_default.Zte_default,
+        'hso_def': Hso_device_default.Hso_device_default,
+        'huawei_def': Huawei_default.Huawei_default,
+	'nova': Nova_U201.Nova_U201,
         'novam': NovaM.NovaM,
         '': Modem
     }
@@ -73,8 +82,6 @@ class Cellular(Network):
             self.logger.info('Successfully connected to cell network')
             # Disable at sockets mode since we're already establishing PPP.
             # This call is needed in certain modems that have limited interfaces to work with.
-            time.sleep(2)
-            # give the device a little time to enumerate
             self.disable_at_sockets_mode()
             self.__configure_routing()
             self._connection_status = CLOUD_CONNECTED
@@ -87,13 +94,12 @@ class Cellular(Network):
 
     def disconnect(self):
         self.logger.info('Disconnecting from cell network')
-        self.__remove_routing()
         success = self.modem.disconnect()
         if success:
             self.logger.info('Successfully disconnected from cell network')
             self._connection_status = CLOUD_DISCONNECTED
             self.event.broadcast('cellular.disconnected')
-            super().disconnect()
+            super().connect()
         else:
             self.logger.info('Failed to disconnect from cell network')
 
@@ -169,22 +175,12 @@ class Cellular(Network):
         self.logger.info('Ready to receive data on port %s', self.__receive_port)
 
     def __configure_routing(self):
-        # maybe we don't have to tear down the routes but we probably should
         self.logger.info('Adding routes to Hologram cloud')
         self._route.add('10.176.0.0/16', self.localIPAddress)
         self._route.add('10.254.0.0/16', self.localIPAddress)
         if self.scope == NetworkScope.SYSTEM:
             self.logger.info('Adding system-wide default route to cellular interface')
             self._route.add_default(self.localIPAddress)
-
-    def __remove_routing(self):
-        self.logger.info('Removing routes to Hologram cloud')
-        if self.localIPAddress:
-            self._route.delete('10.176.0.0/16', self.localIPAddress)
-            self._route.delete('10.254.0.0/16', self.localIPAddress)
-            if self.scope == NetworkScope.SYSTEM:
-                self.logger.info('Removing system-wide default route to cellular interface')
-                self._route.delete_default(self.localIPAddress)
 
     def _load_modem_drivers(self):
         dl = DriverLoader.DriverLoader()
